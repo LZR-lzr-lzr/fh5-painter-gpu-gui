@@ -13,6 +13,7 @@ import configparser
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import sys
+import json
 
 # 可选：Pillow 用于预览图缩放
 try:
@@ -361,19 +362,43 @@ def run_geometrize_gpu(image_path: str,
     log(f"\n runtime 里发现: {len(json_candidates)} 个 .json, "
         f"{len(preview_candidates)} 个 _preview.png")
 
-    # 目标子文件夹：<json_output_dir>/json
+    # 目标子文件夹：<json_output_dir>/<image>json
     image_base = os.path.splitext(os.path.basename(image_path))[0]
-    final_dir = os.path.join(json_output_dir, f"{image_base}json")
+    final_dir = os.path.join(json_output_dir, f"{image_base}.JsonAndPreview")
     os.makedirs(final_dir, exist_ok=True)
     log(f"Folder 输出子目录: {final_dir}")
 
-    # 所有 JSON 都保留
+    # ========== 转换并保留所有 JSON ==========
     for _, src, filename in json_candidates:
+        # 1. 读取 FH5-painter 格式的 JSON
+        try:
+            with open(src, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            log(f"!!! 读取失败 {filename}: {e}")
+            continue
+
+        # 2. 转换成紧凑格式
+        try:
+            converted = json_converter(data)
+        except Exception as e:
+            log(f"!!! 转换失败 {filename}: {e}")
+            continue
+
+        # 3. 写到目标目录（文件名不变）
         dst = os.path.join(final_dir, filename)
         if os.path.exists(dst):
             os.remove(dst)
-        shutil.move(src, dst)
-        log(f"OK 保留 JSON: {filename}")
+        with open(dst, "w", encoding="utf-8") as f:
+            f.write(converted)
+
+        # 4. 删除 runtime 里的原始文件
+        try:
+            os.remove(src)
+        except OSError:
+            pass
+
+        log(f"OK 已转换并保留 JSON: {filename}")
 
     # 预览图只留最新一张
     if preview_candidates:
@@ -401,7 +426,43 @@ def run_geometrize_gpu(image_path: str,
     log(f"runtime 已清理（custom.ini 保留）")
     log("\n OK 完成！")
     return "\n".join(full_stdout)
+#===========================================================
 
+#============================================================
+#converter 
+# 输入：FH5-painter 格式的 JSON
+def json_converter(input_file:dict) -> str:
+    if not input_file:
+        return ""
+
+    shapes = input_file["shapes"]
+
+    # 构建紧凑格式
+    lines = ['{"shapes":']
+
+    for i, shape in enumerate(shapes):
+        t = shape["type"]
+        d = [int(round(v)) for v in shape["data"]]   # 浮点 → 整数
+        c = [int(v) for v in shape["color"]]
+        s = shape["score"]
+
+        # 最后一行不要逗号
+        tail = "" if i == len(shapes) - 1 else ","
+
+        line = (
+            f'{{"type":{t}, "data":{d}, '
+            f'"color":{c}, "score":{s}}}{tail}'
+        )
+        lines.append(line)
+
+    lines.append("]}")
+    output = "\n".join(lines)
+
+    print(f"共 {len(shapes)} 个形状")
+
+    return output
+
+#============================================================
 
 # ============================================================
 # GUI
