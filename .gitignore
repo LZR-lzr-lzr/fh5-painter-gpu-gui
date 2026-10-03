@@ -1,0 +1,16 @@
+# 可执行文件
+*.exe
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 运行时
+runtime/
+settings.ini
+
+# 系统
+.DS_Store
+Thumbs.db
