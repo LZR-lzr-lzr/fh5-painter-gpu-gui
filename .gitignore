@@ -1,6 +1,8 @@
 # 可执行文件
 *.exe
 *.spec
+*.7z
+*.zip
 
 # Python
 __pycache__/
