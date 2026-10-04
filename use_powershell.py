@@ -532,7 +532,7 @@ def json_converter(input_file:dict) -> str:
 class App:
     def __init__(self, root):
         self.root = root
-        self.root.title("FH5 Painter GPU V0.1.0")
+        self.root.title("FH5 Painter GPU BetaV1.0.1")
         self.root.geometry("1100x800")
         self.root.minsize(1000, 680)
 
