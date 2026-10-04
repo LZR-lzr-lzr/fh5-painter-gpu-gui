@@ -14,6 +14,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, scrolledtext
 import sys
 import json
+import time
 
 # 可选：Pillow 用于预览图缩放
 try:
@@ -40,7 +41,65 @@ def get_app_dir() -> str:
 
 script_dir = get_app_dir()
 SETTINGS_INI = os.path.join(script_dir, "settings.ini")
+SETTINGS_TEMPLATE_INI = os.path.join(script_dir, "settings", "template.ini")
 
+#============================================================
+#settings检查
+TEMPLATE_INI:configparser.ConfigParser = configparser.ConfigParser()
+TEMPLATE_INI.optionxform = str
+TEMPLATE_INI["DEFAULT"] = {
+    "description" : "A good balance of quality and speed",
+    "maxPreviewSize" : "500",
+    "maxResolution" : "1200",
+    "maxThreads" : "0",
+    "mutatedSamples" : "3000",
+    "enableMultiPrimitiveShapes" : "false",
+    "posterizeLevels" : "20",
+    "previewEvery" : "50",
+    "randomSamples" : "50000",
+    "saveAt" : "500,1000,1500,2000,2500,3000",
+    "saveEvery" : "50",
+    "stopAt" : "3000",
+    "enableProgressiveSampling" : "false",
+    "progressiveSamplingStart" : "10",
+    "progressiveSamplingEnd" : "1",
+    "progressiveSamplingTransition" : "0.45",
+    "progressiveSamplingCurve" : "3",
+    "errorGridSize" : "64"
+}
+
+def check_template_ini(app_self:"App"):
+    """检查 settings\\template.ini 是否存在，字段是否齐全"""
+    os.makedirs(os.path.dirname(SETTINGS_TEMPLATE_INI), exist_ok=True)
+    if not os.path.exists(SETTINGS_TEMPLATE_INI):
+        with open(SETTINGS_TEMPLATE_INI, "w", encoding="utf-8") as f:
+            TEMPLATE_INI.write(f)
+        App.log(app_self,f"✅ 已生成 {SETTINGS_TEMPLATE_INI}，请根据需要修改参数")
+        return
+
+    cfg = configparser.ConfigParser()
+    cfg.optionxform = str
+    try:
+        cfg.read(SETTINGS_TEMPLATE_INI, encoding="utf-8")
+
+        missing = []
+        for key in TEMPLATE_INI["DEFAULT"]:
+            if not cfg.has_option(configparser.DEFAULTSECT, key):
+                cfg.set(configparser.DEFAULTSECT, key,
+                        TEMPLATE_INI["DEFAULT"][key])
+                missing.append(key)
+
+        if missing:
+            with open(SETTINGS_TEMPLATE_INI, "w", encoding="utf-8") as f:
+                cfg.write(f)
+            App.log(app_self, f"❌ 已补充缺失字段: {missing}")
+        else:
+            App.log(app_self, f"✅ settings\\template.ini 字段齐全")
+
+    except Exception as e:
+        App.log(app_self, f"❌ 检查 settings\\template.ini 时出错: {e}")
+
+#============================================================
 
 # ============================================================
 # settings.ini 读写
@@ -295,6 +354,8 @@ def run_geometrize_gpu(image_path: str,
     log(f"Folder 工作目录: {project_root}")
     log(f"Settings 参数: {inputs}")
 
+    start_time = time.time()
+
     # ========== 用 Popen 实时读取输出 ==========
     full_stdout = []
     process = subprocess.Popen(
@@ -323,7 +384,8 @@ def run_geometrize_gpu(image_path: str,
             try:
                 cur = int(m.group(1))
                 total = int(m.group(2))
-                progress_callback(cur, total)
+                elapsed = time.time() - start_time
+                progress_callback(cur, total, elapsed)
             except ValueError:
                 pass
 
@@ -478,12 +540,16 @@ class App:
         self.progress_queue = queue.Queue()
         self.preview_queue = queue.Queue()
         self.is_running = False
-        self._preview_image_ref = None  # 保持引用，防止被 GC
+        self._preview_image_ref = None   # 保持引用，防止被 GC
+
+        # ✅ 记录本次生成的实际输出子目录
+        self.last_output_dir = None
 
         self._build_ui()
         self._poll_queues()
         self._load_exe_from_ini()
 
+    # ==================== 初始化 ====================
     def _load_exe_from_ini(self):
         exe = load_exe_path()
         if exe:
@@ -495,8 +561,9 @@ class App:
             self.log(f"⚠️ settings.ini 里没有 exePath")
             self.log(f"   请点击「浏览...」选择 exe，然后「💾 保存到 ini」")
 
+    # ==================== 构建界面 ====================
     def _build_ui(self):
-        # ==================== 顶部：exe 路径 ====================
+        # ---------- 顶部：exe 路径 ----------
         frame_exe = ttk.LabelFrame(self.root, text="可执行文件（exePath）")
         frame_exe.pack(fill=tk.X, padx=10, pady=6)
 
@@ -515,7 +582,7 @@ class App:
                                   sticky=tk.W, padx=6, pady=(0, 4))
         frame_exe.columnconfigure(1, weight=1)
 
-        # ==================== 主区域：左右分栏 ====================
+        # ---------- 主区域：左右分栏 ----------
         main = ttk.Frame(self.root)
         main.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
 
@@ -613,10 +680,18 @@ class App:
                                     font=("微软雅黑", 11))
         self.lbl_preview.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
 
-    # ==================== 文件选择 ====================
+    # ==================== exe 相关 ====================
     def pick_exe(self):
+        # 优先用当前 exe 所在目录，否则用脚本目录
+        current_exe = self.var_exe.get().strip()
+        if current_exe and os.path.isdir(os.path.dirname(current_exe)):
+            initial = os.path.dirname(current_exe)
+        else:
+            initial = script_dir
+
         path = filedialog.askopenfilename(
             title="选择 forza-painter-geometrize-go.exe",
+            initialdir=initial,                      # ✅ 打开时定位到该目录
             filetypes=[("可执行文件", "*.exe"), ("所有文件", "*.*")]
         )
         if path:
@@ -656,6 +731,7 @@ class App:
         except Exception as e:
             self.lbl_exe_status.config(text=f"⚠️ {e}", foreground="orange")
 
+    # ==================== 图片与输出 ====================
     def pick_image(self):
         path = filedialog.askopenfilename(
             title="选择图片",
@@ -664,8 +740,8 @@ class App:
         )
         if path:
             self.var_image.set(path)
-            if not self.var_output.get():
-                self.var_output.set(os.path.dirname(path))
+            # ✅ 每次选图后都更新输出目录为图片所在目录
+            self.var_output.set(os.path.dirname(path))
 
     def pick_output(self):
         path = filedialog.askdirectory(title="选择输出目录")
@@ -673,15 +749,34 @@ class App:
             self.var_output.set(path)
 
     def open_output(self):
+        # ✅ 优先打开本次实际生成的子目录
+        if self.last_output_dir and os.path.isdir(self.last_output_dir):
+            os.startfile(self.last_output_dir)
+            return
+
+        # 兜底：打开用户设定的父目录
         out = self.var_output.get().strip()
         if out and os.path.isdir(out):
             os.startfile(out)
-        else:
-            messagebox.showwarning("提示", "输出目录不存在")
+            return
 
-    # ==================== 队列轮询 ====================
+        messagebox.showwarning("提示", "输出目录不存在，请先生成一次")
+
+    # ==================== 日志与队列 ====================
     def log(self, msg):
         self.log_queue.put(msg)
+
+    @staticmethod
+    def _fmt_time(seconds: float) -> str:
+        """把秒数格式化成 1h2m3s / 2m3s / 3s"""
+        seconds = int(seconds)
+        if seconds < 60:
+            return f"{seconds}s"
+        m, s = divmod(seconds, 60)
+        if m < 60:
+            return f"{m}m{s}s"
+        h, m = divmod(m, 60)
+        return f"{h}h{m}m"
 
     def _poll_queues(self):
         # 日志
@@ -698,12 +793,29 @@ class App:
         # 进度
         try:
             while True:
-                cur, total = self.progress_queue.get_nowait()
+                cur, total, elapsed = self.progress_queue.get_nowait()
                 if total > 0:
                     pct = int(cur * 100 / total)
                     self.progress["value"] = pct
-                    self.lbl_progress.config(
-                        text=f"{cur} / {total}  ({pct}%)")
+
+                    used_str = self._fmt_time(elapsed)
+
+                    if cur > 0:
+                        per_shape = elapsed / cur                 # 单个形状平均耗时
+                        remaining = per_shape * (total - cur)     # 预估剩余
+                        remain_str = self._fmt_time(remaining)
+                        per_str = f"{per_shape:.3f}s"             # 每个形状用时
+                        self.lbl_progress.config(
+                            text=f"{cur} / {total}  ({pct}%)   "
+                                    f"| 单个 {per_str}   "
+                                    f"| 已用 {used_str}   "
+                                    f"| 剩余 {remain_str}"
+                        )
+                    else:
+                        self.lbl_progress.config(
+                            text=f"{cur} / {total}  ({pct}%)   "
+                                    f"| 已用 {used_str}"
+                            )
         except queue.Empty:
             pass
 
@@ -723,9 +835,8 @@ class App:
             return
         try:
             if PIL_AVAILABLE:
-                # 用 PIL 缩放，效果更好
+                from PIL import Image, ImageTk
                 img = Image.open(img_path)
-                # 获取右侧容器大小
                 w = self.lbl_preview.winfo_width()
                 h = self.lbl_preview.winfo_height()
                 if w < 10 or h < 10:
@@ -735,7 +846,6 @@ class App:
                 self._preview_image_ref = tk_img
                 self.lbl_preview.config(image=tk_img, text="")
             else:
-                # 无 PIL：直接显示，可能尺寸不合适
                 tk_img = tk.PhotoImage(file=img_path)
                 self._preview_image_ref = tk_img
                 self.lbl_preview.config(image=tk_img, text="")
@@ -785,6 +895,7 @@ class App:
         self.lbl_progress.config(text="准备中...")
         self.lbl_preview.config(image="", text="等待生成...")
         self._preview_image_ref = None
+        self.last_output_dir = None   # 清空上次输出目录
 
         self.is_running = True
         self.btn_run.config(state=tk.DISABLED)
@@ -797,8 +908,8 @@ class App:
         thread.start()
 
     def _worker(self, image, exe, output, stop_at, save_at, save_every, backend):
-        def progress_cb(cur, total):
-            self.progress_queue.put((cur, total))
+        def progress_cb(cur, total,elapsed):
+            self.progress_queue.put((cur, total,elapsed))
 
         def preview_cb(path):
             self.preview_queue.put(path)
@@ -816,7 +927,12 @@ class App:
                 progress_callback=progress_cb,
                 preview_callback=preview_cb
             )
-            self.log("\n✅ 全部完成")
+
+            # ✅ 记录本次实际生成的子目录
+            image_base = os.path.splitext(os.path.basename(image))[0]
+            self.last_output_dir = os.path.join(output, f"{image_base}json")
+            self.log(f"\n✅ 全部完成，输出目录: {self.last_output_dir}")
+
         except Exception as e:
             self.log(f"\n❌ 出错了: {e}")
             import traceback
@@ -835,4 +951,5 @@ class App:
 if __name__ == "__main__":
     root = tk.Tk()
     app = App(root)
+    root.after(0,check_template_ini(app))
     root.mainloop()
