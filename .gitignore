@@ -13,6 +13,7 @@ __pycache__/
 # 运行时
 runtime/
 settings.ini
+releases/
 
 # 系统
 .DS_Store
