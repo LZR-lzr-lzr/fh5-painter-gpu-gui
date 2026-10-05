@@ -3,6 +3,7 @@
 *.spec
 *.7z
 *.zip
+*.json
 
 # Python
 __pycache__/
