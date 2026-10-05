@@ -15,6 +15,8 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 import sys
 import json
 import time
+import requests
+from pathlib import Path
 
 # 可选：Pillow 用于预览图缩放
 try:
@@ -22,6 +24,77 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
+
+
+#============================================================
+#下载器
+#============================================================
+# 可配置的下载源
+DOWNLOAD_SOURCES = {
+    "exe": {
+        # 模型生成器：forza-painter-geometrize-go
+        "url": "https://github.com/zjl88858/forza-painter-geometrize-gpu/releases/download/v1.2/forza-painter-geometrize-go.exe",
+        "filename": "forza-painter-geometrize-go.exe",
+    },
+    "painter": {
+        # 导入器：forza-painter
+        "url": "https://github.com/LZR-lzr-lzr/fh5-painter-gpu-gui/releases/download/Beta_v1.0.1/forza-painter.exe",
+        "filename": "forza-painter.exe",
+    },
+}
+
+
+def download_file(url: str, save_path: str, log_func=print) -> bool:
+    """从 URL 下载文件，带进度提示"""
+    try:
+        log_func(f"⬇️ 正在下载: {url}")
+        r = requests.get(url, stream=True, timeout=60)
+        r.raise_for_status()
+
+        total = int(r.headers.get("content-length", 0))
+        done = 0
+
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+
+        with open(save_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    f.write(chunk)
+                    done += len(chunk)
+                    if total > 0 and done % (1024 * 1024) < 8192:
+                        pct = done * 100 // total
+                        log_func(f"   {pct}% ({done // 1024} KB / {total // 1024} KB)")
+
+        log_func(f"✅ 已下载: {save_path}")
+        return True
+
+    except Exception as e:
+        log_func(f"❌ 下载失败: {e}")
+        return False
+
+
+def ensure_tools(log_func=print) -> tuple:
+    """
+    检查 exe 和 painter 是否存在于程序目录，不存在就自动下载。
+    :return: (exe_path, painter_path)，失败返回 (None, None)
+    """
+    exe_path = os.path.join(script_dir, DOWNLOAD_SOURCES["exe"]["filename"])
+    painter_path = os.path.join(script_dir, DOWNLOAD_SOURCES["painter"]["filename"])
+
+    # 检查 exe
+    if not os.path.exists(exe_path):
+        log_func(f"⚠️ 未找到 {os.path.basename(exe_path)}，开始下载...")
+        if not download_file(DOWNLOAD_SOURCES["exe"]["url"], exe_path, log_func):
+            return None, None
+
+    # 检查 painter
+    if not os.path.exists(painter_path):
+        log_func(f"⚠️ 未找到 {os.path.basename(painter_path)}，开始下载...")
+        if not download_file(DOWNLOAD_SOURCES["painter"]["url"], painter_path, log_func):
+            return None, None
+
+    return exe_path, painter_path
+# ============================================================
 
 # ============================================================
 # 路径常量
@@ -95,8 +168,6 @@ def check_template_ini(app_self: "App"):
             App.log(app_self, f"✅ settings/template.ini 字段齐全")
     except Exception as e:
         App.log(app_self, f"❌ 检查 settings/template.ini 时出错: {e}")
-
-
 # ============================================================
 # settings.ini 读写
 # ============================================================
@@ -559,8 +630,28 @@ class App:
 
         self._build_ui()
         self._poll_queues()
+
+        self.root.after(200, self._ensure_tools_async)
+
         self._load_paths_from_ini()
         self._update_json_button_state()
+
+    # ============================ 工具检查 ==========
+    def _ensure_tools_async(self):
+        """在后台线程里检查和下载，避免卡住 UI"""
+        def worker():
+            exe, painter = ensure_tools(log_func=self.log)
+            if exe and painter:
+                # 下载完成后，填到输入框并保存到 ini
+                self.root.after(0, lambda: self.var_exe.set(exe))
+                self.root.after(0, lambda: self.var_painter.set(painter))
+                self.root.after(0, self._update_exe_status)
+                self.root.after(0, self._update_painter_status)
+            else:
+                self.root.after(0, lambda: self.log(
+                    "⚠️ 自动下载失败，请手动选择 exe / painter"))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     # ==================== 初始化 ====================
     def _load_paths_from_ini(self):
