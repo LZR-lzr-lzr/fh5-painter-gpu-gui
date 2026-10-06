@@ -335,3 +335,27 @@ def build_custom_ini(src_path: str, dst_path: str,
     with open(dst_path, "w", encoding="utf-8") as f:
         f.writelines(lines)
     return dst_path
+
+#====================================================================
+#输入矫正
+def normalize_saveat_input(input:str) -> str:
+    _input = ""
+    for l in input:
+        if l == "," or l == "，":
+            _input += ","
+        
+        else:
+            _input += l
+
+    inputs = _input.split(",")
+    
+    inputs.sort(reverse=False)
+
+    old_num = 0
+    for i in range(len(inputs)):
+        if int(inputs[i-1]) == old_num:
+            inputs.remove(inputs[i-1])
+        
+        old_num = int(inputs[i-1])
+    
+    return ",".join(inputs)

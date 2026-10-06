@@ -25,6 +25,7 @@ from tools import (
     load_painter_path,
     save_painter_path,
     get_base_ini,
+    normalize_saveat_input,
 )
 from gpu_geometrize import (
     run_geometrize_gpu,
@@ -998,7 +999,7 @@ class App:
             messagebox.showerror(tr("msg_title_error"), tr("msg_int_required"))
             return
 
-        save_at = self.var_save.get().strip()
+        save_at = normalize_saveat_input(self.var_save.get().strip())
         if not save_at:
             save_at = ",".join(str(i) for i in range(save_every, stop_at + 1, save_every))
             self.var_save.set(save_at)
