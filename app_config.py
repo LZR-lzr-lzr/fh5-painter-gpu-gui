@@ -4,6 +4,11 @@
 
 VERSION = "1.1.1-Beta"
 APP_NAME = "FH5 Painter GPU"
+OWNER = "LZR-lzr-lzr"
+REPO = "fh5-painter-gpu-gui"
+TAG_PREFIX = ""              # tag 前缀，想用 v1.1.1-Beta 就填 "v"，不用就空
+DRAFT = False                # 是否先建草稿
+PRERELEASE = True            # Beta 版本一般标为预发行
 
 DOWNLOAD_SOURCES = {
     "exe": {

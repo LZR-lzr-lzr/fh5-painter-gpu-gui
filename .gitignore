@@ -4,16 +4,20 @@
 *.7z
 *.zip
 *.json
+*.token
 
 # Python
 __pycache__/
 *.py[cod]
 .venv/
 
+#build
+publish.ps1
+
 # 运行时
 runtime/
 settings.ini
-releases/
+release/
 
 # 系统
 .DS_Store
