@@ -20,7 +20,6 @@ from tools import (
     set_ini_value,
     normalize_save_at,
     build_custom_ini,
-    normalize_saveat_input,
 )
 
 
@@ -216,8 +215,6 @@ def run_geometrize_gpu(image_path: str,
                        progress_callback=None,
                        preview_callback=None,
                        seed: int = None) -> str:
-
-    save_at = normalize_save_at(save_at)
 
     """生成 JSON 与预览图"""
     def log(msg):

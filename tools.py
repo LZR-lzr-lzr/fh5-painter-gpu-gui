@@ -9,24 +9,14 @@ import configparser
 from pathlib import Path
 
 import requests
+import app_config
 
 
 # ============================================================
 # 下载器
 # ============================================================
 # 可配置的下载源
-DOWNLOAD_SOURCES = {
-    "exe": {
-        # 模型生成器：forza-painter-geometrize-go
-        "url": "https://github.com/zjl88858/forza-painter-geometrize-gpu/releases/download/v1.2/forza-painter-geometrize-go.exe",
-        "filename": "forza-painter-geometrize-go.exe",
-    },
-    "painter": {
-        # 导入器：forza-painter
-        "url": "https://github.com/LZR-lzr-lzr/fh5-painter-gpu-gui/releases/download/Beta_v1.0.1/forza-painter.exe",
-        "filename": "forza-painter.exe",
-    },
-}
+DOWNLOAD_SOURCES = app_config.DOWNLOAD_SOURCES
 
 
 def download_file(url: str, save_path: str, log_func=print) -> bool:
@@ -106,26 +96,7 @@ SETTINGS_TEMPLATE_INI = os.path.join(script_dir, "settings", "template.ini")
 # ============================================================
 TEMPLATE_INI: configparser.ConfigParser = configparser.ConfigParser()
 TEMPLATE_INI.optionxform = str
-TEMPLATE_INI["DEFAULT"] = {
-    "description": "A good balance of quality and speed",
-    "maxPreviewSize": "500",
-    "maxResolution": "1200",
-    "maxThreads": "0",
-    "mutatedSamples": "3000",
-    "enableMultiPrimitiveShapes": "false",
-    "posterizeLevels": "20",
-    "previewEvery": "50",
-    "randomSamples": "50000",
-    "saveAt": "500,1000,1500,2000,2500,3000",
-    "saveEvery": "50",
-    "stopAt": "3000",
-    "enableProgressiveSampling": "false",
-    "progressiveSamplingStart": "10",
-    "progressiveSamplingEnd": "1",
-    "progressiveSamplingTransition": "0.45",
-    "progressiveSamplingCurve": "3",
-    "errorGridSize": "64",
-}
+TEMPLATE_INI["DEFAULT"] = app_config.DEFAULT_INI
 
 
 def check_template_ini(log_func=print):
@@ -311,17 +282,24 @@ def set_ini_value(lines: list, key: str, value: str) -> list:
 
 
 def normalize_save_at(value: str) -> str:
-    nums = []
-    for token in value.split(","):
-        token = token.strip()
-        if not token:
-            continue
-        if not token.isdigit():
-            raise ValueError(f"saveAt 里有非法数字: {token}")
-        nums.append(int(token))
-    if not nums:
+    # 1. 只允许数字和分隔符
+    for token in value:
+        if token not in "0123456789,， \t":
+            raise ValueError(f"saveAt 里有非法字符: {token}")
+
+    # 2. 统一分隔符为半角逗号
+    normalized = value.replace("，", ",").replace(" ", ",").replace("\t", ",")
+
+    # 3. 切分并过滤空段
+    tokens = [t for t in normalized.split(",") if t]
+
+    if not tokens:
         raise ValueError("saveAt 不能为空")
-    return ",".join(str(n) for n in sorted(set(nums)))
+
+    # 4. 转成 int 做数值排序 + 去重
+    nums = sorted({int(t) for t in tokens})
+
+    return ",".join(str(n) for n in nums)
 
 
 def build_custom_ini(src_path: str, dst_path: str,
@@ -336,26 +314,34 @@ def build_custom_ini(src_path: str, dst_path: str,
         f.writelines(lines)
     return dst_path
 
-#====================================================================
-#输入矫正
-def normalize_saveat_input(input:str) -> str:
-    _input = ""
-    for l in input:
-        if l == "," or l == "，":
-            _input += ","
-        
-        else:
-            _input += l
 
-    inputs = _input.split(",")
-    
-    inputs.sort(reverse=False)
+def load_custom_ini_params(ini_path: str = None) -> dict:
+    """
+    读取 runtime/custom.ini 里的参数（stopAt / saveAt / saveEvery）。
+    文件不存在或读不到字段时返回空 dict。
+    """
+    if ini_path is None:
+        ini_path = os.path.join(script_dir, "runtime", "custom.ini")
+    if not os.path.exists(ini_path):
+        return {}
 
-    old_num = 0
-    for i in range(len(inputs)):
-        if int(inputs[i-1]) == old_num:
-            inputs.remove(inputs[i-1])
-        
-        old_num = int(inputs[i-1])
-    
-    return ",".join(inputs)
+    keys = ("stopAt", "saveAt", "saveEvery")
+    patterns = {
+        k: re.compile(rf"^\s*{re.escape(k)}\s*=\s*(.*)$", re.IGNORECASE)
+        for k in keys
+    }
+    result = {}
+    try:
+        with open(ini_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                for k, pat in patterns.items():
+                    if k in result:
+                        continue
+                    m = pat.match(line)
+                    if m:
+                        val = m.group(1).strip()
+                        if val:
+                            result[k] = val
+    except Exception:
+        pass
+    return result
