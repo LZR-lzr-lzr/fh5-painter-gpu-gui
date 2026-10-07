@@ -43,6 +43,8 @@ fh5_painter_gpu_gui/
     ├── src0.png
     ├── src1.png
     └── src2.png
+├──publish.py # 打包
+└──publish.ps1 #打包
 ```
 
 ---
